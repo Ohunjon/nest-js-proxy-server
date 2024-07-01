@@ -18,7 +18,7 @@ $ npm run start:dev
 # production mode
 $ npm run start:prod
 
-# you can see result in (if you have adblocker please turn of it temporary):
+# you can see result in (if you have adblocker please turn off it temporary):
 http://localhost:3000/
 
 ```
