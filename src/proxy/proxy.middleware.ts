@@ -7,6 +7,8 @@ import { Response, Request } from 'express';
 import { JSDOM } from 'jsdom';
 import { json } from 'stream/consumers';
 import axios from 'axios';
+import puppeteer from 'puppeteer';
+
 
 @Injectable()
 export class ProxyMiddleware implements NestMiddleware {
@@ -48,73 +50,66 @@ export class ProxyMiddleware implements NestMiddleware {
         //   // eslint-disable-next-line @typescript-eslint/no-unused-vars
         proxyReq: (proxyReq, _req: Request, _res: Response) => {
           /* handle proxyReq */
-          console.log('Proxying request to:', proxyReq.path);
+          //  console.log('Proxying request to:', proxyReq.path);
         },
         proxyRes: responseInterceptor(
           async (responseBuffer, proxyRes, _req, res: Response) => {
-            console.log(`Received response with status: ${proxyRes.statusCode}`);
-            // res.removeHeader('content-security-policy');
-            // const contentType = proxyRes.headers['content-type'];
-            // if (!contentType?.startsWith('image/')) {
-            // const response = responseBuffer.toString('utf8');
-            // console.log(responseBuffer.toString('utf-8'));
-            // const dom = new JSDOM(response);
+            // console.log(`Received response with status: ${proxyRes.statusCode}`);
+            // Determine the encoding from the headers or default to UTF-8
+            //  const contentType = proxyRes.headers['content-type'] || '';
+            //const charsetMatch = contentType.match(/charset=([^;]+)/);
+            // const encoding = charsetMatch ? charsetMatch[1] : 'utf-8';
 
-            // const document = dom.window.document;
-            // const documentOrg = dom.window.document;
-            // let bodyContent = document.querySelector('body');
+            if (proxyRes.headers['content-type'] && proxyRes.headers['content-type'].includes('text/html')) {
+              console.log('hi')
 
-            // if (bodyContent) {
-            //   //  bodyContent = this.processTextNodes(bodyContent);
-            // }
+              // Decode buffer to a UTF-8 string
+              const responseString = responseBuffer.toString('utf-8');
 
-            // const oldBody = documentOrg.querySelector('body');
-            // oldBody.parentNode.replaceChild(bodyContent, oldBody);
+              // Use Puppeteer to render the SPA
+              const browser = await puppeteer.launch({ headless: true });
+              const page = await browser.newPage();
 
-            //return dom.serialize();
-            //}
-            // const statusCode = res.statusCode === 200 ? res.statusCode : 500;
-            //res.status(statusCode);
-            // return JSON.stringify(responseBuffer);
+              // Set the content of the page to the response from the proxy
+              await page.setContent(responseString, { waitUntil: 'domcontentloaded' });
 
-            // const responseStringg = responseBuffer.toString('utf8');
-            // const dom = new JSDOM(responseStringg);
-            // const document = dom.window.document;
-            // let responseString = document.body.innerHTML;
-            // const responseString = bodyContent.toString('utf8');
+              // Wait for the dynamic content to be rendered
+              await page.waitForSelector('body', { timeout: 5000 });
+              /// await this.waitForDynamicContent(page);
+              // Modify the content if needed
+              const modifiedHtml = await page.evaluate(() => {
+                const addSymbolToTextNodes = (node: Node) => {
+                  if (node.nodeType === Node.TEXT_NODE) {
+                    if (node.parentNode.nodeName !== 'STYLE' && node.parentNode.nodeName !== 'SCRIPT') {
 
-            // res.setHeader('Content-Type', 'application/json');
+                      if (node.textContent.trim().length > 6) {
+                        node.textContent = `+${node.textContent}+alijon`;
+                      }
+                    }
+                  } else {
+                    node.childNodes.forEach(addSymbolToTextNodes);
+                  }
+                };
 
-            // Return the modified response string
-            // return this.processTextNodes(document.querySelector('body')).innerHTML;
-            // Add a script to send a request after all resources are loaded
+                document.body.childNodes.forEach(addSymbolToTextNodes);
 
-            //return responseString;
+                return document.documentElement.outerHTML;
+              });
 
-            let data = '';
+              await browser.close();
+
+              // Set the Content-Type header to text/html with UTF-8 encoding
+              //  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+              // console.log('end', modifiedHtml);
+              // return responseBuffer;
+              return modifiedHtml
+            }
+            else {
+              return responseBuffer;
+            }
 
 
-            proxyRes.on('data', (chunk: any) => {
-              console.log('on data')
-              data += chunk;
-            });
-
-            proxyRes.on('end', async () => {
-
-              //  const responseStringg = responseBuffer.toString('utf8');
-              // const dom = new JSDOM(data);
-              // const document = dom.window.document;
-              // Wait for all resources to be fetched
-
-              // let responseString = document.body.innerHTML;
-              //  await this.fetchAllResources(document);
-              // let responseString = document.body.innerHTML;
-              console.log('on data end');
-            });
-
-            return responseBuffer;
-          }
-        ),
+          }),
 
         error: (_err, _req, res: Response) => {
           console.log('error');
@@ -151,5 +146,35 @@ export class ProxyMiddleware implements NestMiddleware {
 
     // Wait for all fetch requests to complete
     await Promise.all(promises);
+  }
+
+
+
+  async waitForDynamicContent(page, timeout = 20000, checkInterval = 2000) {
+    const start = Date.now();
+    let lastHTMLSize = 0;
+    let stableTimes = 0;
+
+    while (Date.now() - start < timeout) {
+      const html = await page.content();
+      const currentHTMLSize = html.length;
+
+      if (currentHTMLSize !== lastHTMLSize) {
+        stableTimes = 0;
+        lastHTMLSize = currentHTMLSize;
+      } else {
+        stableTimes += 1;
+      }
+
+      if (stableTimes >= 3) {
+        console.log('Content has stabilized.');
+        return;
+      }
+
+
+      await new Promise(resolve => setTimeout(resolve, checkInterval));
+    }
+
+    console.log('Timeout reached without stabilization.');
   }
 }

@@ -26,6 +26,7 @@
     "axios": "^1.7.3",
     "http-proxy": "^1.18.1",
     "jsdom": "^24.1.0",
+    "puppeteer": "^22.15.0",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.1"
   },
