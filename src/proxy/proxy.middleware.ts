@@ -61,8 +61,6 @@ export class ProxyMiddleware implements NestMiddleware {
             // const encoding = charsetMatch ? charsetMatch[1] : 'utf-8';
 
             if (proxyRes.headers['content-type'] && proxyRes.headers['content-type'].includes('text/html')) {
-              console.log('hi')
-
               // Decode buffer to a UTF-8 string
               const responseString = responseBuffer.toString('utf-8');
 
@@ -71,10 +69,10 @@ export class ProxyMiddleware implements NestMiddleware {
               const page = await browser.newPage();
 
               // Set the content of the page to the response from the proxy
-              await page.setContent(responseString, { waitUntil: 'domcontentloaded' });
+              await page.setContent(responseString, { waitUntil: 'networkidle0' });
 
               // Wait for the dynamic content to be rendered
-              await page.waitForSelector('body', { timeout: 5000 });
+              await page.waitForSelector('app-root', { timeout: 5000 });
               /// await this.waitForDynamicContent(page);
               // Modify the content if needed
               const modifiedHtml = await page.evaluate(() => {
