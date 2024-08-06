@@ -4,10 +4,6 @@ import {
   responseInterceptor
 } from 'http-proxy-middleware';
 import { Response, Request } from 'express';
-import { JSDOM } from 'jsdom';
-import { json } from 'stream/consumers';
-import axios from 'axios';
-import puppeteer from 'puppeteer';
 
 
 @Injectable()
@@ -33,85 +29,103 @@ export class ProxyMiddleware implements NestMiddleware {
     return node;
   }
 
+  generateDinamicScript() {
+    return `
+          <script>
+            function addTrademarkSymbolToTextNodes(node) {
+              if (node.nodeType === Node.TEXT_NODE) {
+                const trimmedText = node.textContent.trim();
+                if (trimmedText.length > 6 && !trimmedText.includes('™')) {
+                  node.textContent = trimmedText + '™';
+                }
+              } else {
+                node.childNodes.forEach(addTrademarkSymbolToTextNodes);
+              }
+            }
+
+            function modifyTextContent() {
+              document.body.childNodes.forEach(addTrademarkSymbolToTextNodes);
+            }
+
+            // Modify content on initial load
+            window.addEventListener('load', modifyTextContent);
+
+            
+            function setupRouteChangeListeners() {
+              window.addEventListener('popstate', modifyTextContent);
+              window.addEventListener('pushState', modifyTextContent);
+              window.addEventListener('replaceState', modifyTextContent);
+
+              // Check for history API changes
+              const originalPushState = history.pushState;
+              const originalReplaceState = history.replaceState;
+
+              history.pushState = function() {
+                originalPushState.apply(this, arguments);
+                window.dispatchEvent(new Event('pushState'));
+              };
+
+              history.replaceState = function() {
+                originalReplaceState.apply(this, arguments);
+                window.dispatchEvent(new Event('replaceState'));
+              };
+            }
+
+  
+            setupRouteChangeListeners();
+
+            let previousUrl = '';
+const observer = new MutationObserver(function(mutations) {
+  if (location.href !== previousUrl) {
+      previousUrl = location.href;
+      modifyTextContent();
+    }
+});
+const config = {subtree: true, childList: true};
+observer.observe(document, config);
+
+
+window.navigation.addEventListener("navigate", (event) => {
+   modifyTextContent();
+});
+          </script>
+        `;
+  }
+
   use(req: Request, res: any, next: () => void) {
-    let targetLink = 'https://docs.nestjs.com/';
+    let targetLink = 'https://docs.nestjs.com';
     if (req.originalUrl) {
       targetLink = targetLink + req.originalUrl;
     }
-    // console.log(targetLink);
     const proxy = createProxyMiddleware({
       target: `${targetLink}`,
       changeOrigin: true,
       secure: true,
-      // timeout: 5000, // Timeout for the proxy request in milliseconds
-      // proxyTimeout: 5000,
       selfHandleResponse: true,
       on: {
-        //   // eslint-disable-next-line @typescript-eslint/no-unused-vars
         proxyReq: (proxyReq, _req: Request, _res: Response) => {
-          /* handle proxyReq */
           //  console.log('Proxying request to:', proxyReq.path);
         },
         proxyRes: responseInterceptor(
           async (responseBuffer, proxyRes, _req, res: Response) => {
-            // console.log(`Received response with status: ${proxyRes.statusCode}`);
-            // Determine the encoding from the headers or default to UTF-8
-            //  const contentType = proxyRes.headers['content-type'] || '';
-            //const charsetMatch = contentType.match(/charset=([^;]+)/);
-            // const encoding = charsetMatch ? charsetMatch[1] : 'utf-8';
 
             if (proxyRes.headers['content-type'] && proxyRes.headers['content-type'].includes('text/html')) {
               // Decode buffer to a UTF-8 string
               const responseString = responseBuffer.toString('utf-8');
 
-              // Use Puppeteer to render the SPA
-              const browser = await puppeteer.launch({ headless: true });
-              const page = await browser.newPage();
+              const scriptToInject = this.generateDinamicScript();
 
-              // Set the content of the page to the response from the proxy
-              await page.setContent(responseString, { waitUntil: 'networkidle0' });
+              // Insert the script before the closing </body> tag
+              const modifiedContent = responseString.replace('</body>', `${scriptToInject}</body>`);
 
-              // Wait for the dynamic content to be rendered
-              await page.waitForSelector('app-root', { timeout: 5000 });
-              /// await this.waitForDynamicContent(page);
-              // Modify the content if needed
-              const modifiedHtml = await page.evaluate(() => {
-                const addSymbolToTextNodes = (node: Node) => {
-                  if (node.nodeType === Node.TEXT_NODE) {
-                    if (node.parentNode.nodeName !== 'STYLE' && node.parentNode.nodeName !== 'SCRIPT') {
-
-                      if (node.textContent.trim().length > 6) {
-                        node.textContent = `+${node.textContent}+alijon`;
-                      }
-                    }
-                  } else {
-                    node.childNodes.forEach(addSymbolToTextNodes);
-                  }
-                };
-
-                document.body.childNodes.forEach(addSymbolToTextNodes);
-
-                return document.documentElement.outerHTML;
-              });
-
-              await browser.close();
-
-              // Set the Content-Type header to text/html with UTF-8 encoding
-              //  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-              // console.log('end', modifiedHtml);
-              // return responseBuffer;
-              return modifiedHtml
+              return Buffer.from(modifiedContent, 'utf8');
             }
             else {
               return responseBuffer;
             }
-
-
           }),
-
         error: (_err, _req, res: Response) => {
           console.log('error');
-
           if (!res.headersSent) {
             res.status(500).send('Proxy error');
           }
@@ -119,60 +133,5 @@ export class ProxyMiddleware implements NestMiddleware {
       }
     });
     proxy(req, res, next);
-  }
-
-  async fetchAllResources(document) {
-    const promises = [];
-    const resources = document.querySelectorAll('img[src], link[href], script[src]');
-
-    resources.forEach(resource => {
-      const url = resource.src || resource.href;
-
-      if (url) {
-        promises.push(
-          axios.get(url)
-            .then(response => {
-              console.log(`Fetched resource: ${url}`);
-              return response.data;
-            })
-            .catch(error => {
-              console.error(`Error fetching resource: ${url}`, error);
-            })
-        );
-      }
-    });
-
-    // Wait for all fetch requests to complete
-    await Promise.all(promises);
-  }
-
-
-
-  async waitForDynamicContent(page, timeout = 20000, checkInterval = 2000) {
-    const start = Date.now();
-    let lastHTMLSize = 0;
-    let stableTimes = 0;
-
-    while (Date.now() - start < timeout) {
-      const html = await page.content();
-      const currentHTMLSize = html.length;
-
-      if (currentHTMLSize !== lastHTMLSize) {
-        stableTimes = 0;
-        lastHTMLSize = currentHTMLSize;
-      } else {
-        stableTimes += 1;
-      }
-
-      if (stableTimes >= 3) {
-        console.log('Content has stabilized.');
-        return;
-      }
-
-
-      await new Promise(resolve => setTimeout(resolve, checkInterval));
-    }
-
-    console.log('Timeout reached without stabilization.');
   }
 }
