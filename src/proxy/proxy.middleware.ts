@@ -5,17 +5,23 @@ import {
 } from 'http-proxy-middleware';
 import { Response, Request } from 'express';
 
+enum TargetLink {
+  NESTJSDOCS = 'https://docs.nestjs.com',
+  VUEJSORG = 'https://vuejs.org'
+}
+
 
 @Injectable()
 export class ProxyMiddleware implements NestMiddleware {
 
   use(req: Request, res: any, next: () => void) {
-    let targetLink = 'https://docs.nestjs.com';
+    let targetLink: TargetLink = TargetLink.NESTJSDOCS;
+    let link: string = targetLink;
     if (req.originalUrl) {
-      targetLink = targetLink + req.originalUrl;
+      link = targetLink + req.originalUrl;
     }
     const proxy = createProxyMiddleware({
-      target: `${targetLink}`,
+      target: `${link}`,
       changeOrigin: true,
       secure: true,
       selfHandleResponse: true,
@@ -27,11 +33,20 @@ export class ProxyMiddleware implements NestMiddleware {
           async (responseBuffer, proxyRes, _req, res: Response) => {
 
             if (proxyRes.headers['content-type'] && proxyRes.headers['content-type'].includes('text/html')) {
+
               // Decode buffer to a UTF-8 string
               const responseString = responseBuffer.toString('utf-8');
               // Insert the script before the closing </body> tag
-              const modifiedContent = responseString.replace('</body>', `<script src="/scripts.js"></script></body>`);
-              return modifiedContent;
+
+              if (targetLink === (TargetLink.NESTJSDOCS as TargetLink)) {
+                const modifiedContent = responseString.replace('</body>', `<script src="/scripts.js"></script></body>`);
+                return modifiedContent;
+              }
+              if (targetLink === (TargetLink.VUEJSORG as TargetLink)) {
+                const modifiedContent = responseString.replace('</body>', `<script src="/scripts-vue.js"></script></body>`);
+                return modifiedContent;
+              }
+              return responseBuffer;
             }
             else {
               return responseBuffer;

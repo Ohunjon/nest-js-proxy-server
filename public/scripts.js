@@ -14,15 +14,11 @@ window.addEventListener("load", () => {
   //add Trademark Symbol after load page
   modifyTextNodes(document.body);
 
-  let previousUrl = "";
-  const observer = new MutationObserver(function (mutations) {
-    if (location.href !== previousUrl) {
-      previousUrl = location.href;
-      modifyTextNodes(document.body);
-    }
-  });
   const config = { subtree: true, childList: true };
-  observer.observe(document, config);
+  const observerBody = new MutationObserver(callback);
+
+  const targetNode = document.body;
+  observerBody.observe(targetNode, config);
 });
 
 function watchSearchModalState() {
@@ -132,3 +128,13 @@ function processTextNodes(node) {
     node.childNodes.forEach(processTextNodes);
   }
 }
+
+let mutationTimeout;
+const callback = function (mutationsList, observer) {
+  clearTimeout(mutationTimeout);
+
+  mutationTimeout = setTimeout(() => {
+    // console.log("All DOM changes are completed.");
+    modifyTextNodes(document.body);
+  }, 1500);
+};
